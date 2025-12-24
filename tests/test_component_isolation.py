@@ -4,11 +4,13 @@ Simple Component Tests
 Tests components in isolation
 """
 
+import sys
 import pytest
 from datetime import datetime, timezone
+from pathlib import Path
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lonewarrior.storage.database import Database
 from lonewarrior.storage.models import Detection, Action, DetectionType, ActionType, EventType, ThreatIntel
@@ -54,6 +56,7 @@ class TestComponentIsolation:
                     'abuseipdb': {'enabled': True, 'api_key': ''},
                     'project_honeypot': {'enabled': True},
                 }
+            }
             }
 
         db = Database(str(temp_data_dir / 'test.db'))
