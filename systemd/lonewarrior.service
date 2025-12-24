@@ -1,0 +1,24 @@
+[Unit]
+Description=LoneWarrior Autonomous Security Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/var/lib/lonewarrior
+ExecStart=/usr/bin/python3 -m lonewarrior
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+# Watchdog
+WatchdogSec=60s
+
+# Resource limits
+MemoryMax=1G
+CPUQuota=15%
+
+[Install]
+WantedBy=multi-user.target

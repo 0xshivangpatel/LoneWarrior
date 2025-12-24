@@ -1,0 +1,32 @@
+# Core dependencies
+psutil>=5.9.0              # System and process monitoring
+watchdog>=3.0.0            # File system monitoring
+pyyaml>=6.0                # Configuration parsing
+click>=8.1.0               # CLI framework
+colorama>=0.4.6            # Colored terminal output
+
+# Web dashboard (optional)
+flask>=2.3.0               # Web framework
+flask-cors>=4.0.0          # CORS support
+
+# Database
+# Note: sqlite3 is included in Python standard library
+
+# Network and security
+requests>=2.31.0           # HTTP requests for threat intel feeds
+python-iptables>=1.0.0     # iptables management
+
+# Container monitoring (optional)
+docker>=6.1.0              # Docker SDK for Python
+
+# LLM support (optional)
+openai>=1.0.0              # OpenAI API client
+anthropic>=0.18.0          # Anthropic API client
+
+# Logging
+python-json-logger>=2.0.7  # JSON structured logging
+
+# Utilities
+python-dateutil>=2.8.2     # Date parsing
+tabulate>=0.9.0            # Pretty table formatting for CLI
+pytest>=7.0.0              # Testing framework

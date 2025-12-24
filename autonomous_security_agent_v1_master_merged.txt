@@ -1,0 +1,267 @@
+AUTONOMOUS SECURITY AGENT – V1 MASTER DESIGN DOCUMENT (MERGED)
+================================================================
+
+This document is the authoritative V1 specification, merging the original
+master documentation with updated competitive analysis, prioritization,
+and newly identified high-impact features.
+
+====================================================================
+1. PRODUCT GOAL
+====================================================================
+
+Build an autonomous, always-on security agent that:
+- Works standalone with zero existing security tools
+- Learns normal system behavior automatically
+- Detects real attacks (not just alerts)
+- Takes safe, reversible actions autonomously
+- Operates on low-resource VPS / SMB environments
+- Uses LLMs optionally and additively, never mandatorily
+
+====================================================================
+2. CORE DESIGN PRINCIPLES
+====================================================================
+
+1. Standalone-first (no SIEM/WAF/EDR required)
+2. Actions > alerts
+3. Deterministic core always active
+4. Safety, reversibility, and auditability
+5. Resource awareness and graceful degradation
+6. LLMs are optional consultants, not decision owners
+
+====================================================================
+3. DEPLOYMENT MODEL (V1)
+====================================================================
+
+- Agent-per-host model
+- Linux first (Ubuntu/Debian/RHEL)
+- One-command install
+- Runs as root via systemd
+- No central controller in V1
+
+====================================================================
+4. DATA COLLECTION (ALWAYS AVAILABLE)
+====================================================================
+
+System:
+- Processes (/proc, lineage tracking)
+- Users & auth logs
+- Services & ports
+- Cron & startup scripts
+
+Network:
+- /proc/net/tcp, udp
+- iptables / nftables logs
+- Connection frequency & destinations
+
+Applications:
+- Nginx / Apache logs
+- Error & access patterns
+
+Containers:
+- Docker container processes
+- Network & volume access
+
+====================================================================
+5. BASELINE LEARNING (NO LLM REQUIRED)
+====================================================================
+
+- 24–72h read-only mode
+- Learn:
+  * Normal processes
+  * Normal outbound destinations
+  * Normal request rates
+  * Normal auth behavior
+- Persisted on disk (SQLite)
+- Versioned and auditable
+
+====================================================================
+6. DETECTION ENGINE (DETERMINISTIC CORE)
+====================================================================
+
+A. Invariant Violations
+- Web server spawning shells
+- DB connecting to internet
+- New privileged users
+- Unexpected listeners
+
+B. Deviation Detection
+- Rate spikes
+- New processes
+- New destinations
+- New persistence mechanisms
+
+====================================================================
+7. HIGH-IMPACT V1 ADDITIONS (MERGED)
+====================================================================
+
+1. File Integrity Monitoring (FIM)
+   - Web roots, configs, startup scripts
+   - Hash + change detection
+   - Detect webshells and backdoors
+
+2. Process Lineage Tracking
+   - Parent-child process graphs
+   - Detect RCE chains
+
+3. Outbound Connection Baseline
+   - Learn normal destinations
+   - Detect C2 / exfil
+   - Temporary blocking
+
+4. Containment Mode (Time-Bound)
+   - Triggered on high confidence
+   - Block outbound except whitelist
+   - Rate-limit inbound
+   - Pause new SSH logins
+   - Auto-expiry and rollback
+
+5. Minimal Kill-Chain Awareness
+   - Recon
+   - Initial access
+   - Execution
+   - Persistence
+   - Exfiltration
+   - Escalate if multiple stages seen
+
+6. Explainability Without LLM
+   - Every action has human-readable reason
+   - Deterministic explanations
+
+====================================================================
+8. CONFIDENCE SCORING & CORRELATION
+====================================================================
+
+Signals contribute to score:
+- Local anomaly
+- FIM hit
+- Process lineage violation
+- Outbound anomaly
+- Optional tool signals (Wazuh, ModSecurity, Suricata)
+
+Thresholds:
+- Observe
+- Contain
+- Aggressive contain
+- Lockdown
+
+====================================================================
+9. AUTONOMOUS ACTIONS (V1 SAFE SET)
+====================================================================
+
+Allowed:
+- Temporary IP blocking
+- Rate limiting
+- Kill malicious processes
+- Disable compromised users
+- Isolate containers
+- Block outbound destinations
+
+Forbidden:
+- File deletion
+- Auto-patching
+- Permanent rule changes
+
+====================================================================
+10. VERIFICATION & ROLLBACK
+====================================================================
+
+- Snapshot before action
+- Health checks after
+- Automatic rollback on degradation
+- Full audit trail
+
+====================================================================
+11. OPTIONAL INTEGRATIONS (READ-ONLY)
+====================================================================
+
+V1 Supported:
+- Wazuh (SIEM + EDR)
+- ModSecurity (WAF)
+- Suricata (IDS)
+
+Rules:
+- Never required
+- Never authoritative
+- Used only to increase confidence
+
+====================================================================
+12. LLM ARCHITECTURE (OPTIONAL & ADDITIVE)
+====================================================================
+
+Modes:
+- No LLM (default)
+- Local LLM (on-demand, ephemeral, Dockerized)
+- Cloud LLM (user opt-in)
+
+LLM properties:
+- Stateless
+- No persistence
+- No authority
+- Used only for ambiguous cases & explanation
+
+Baseline memory always lives in agent storage, not LLM.
+
+====================================================================
+13. RESOURCE MODEL (8GB VPS FRIENDLY)
+====================================================================
+
+- Deterministic core: ~500MB RAM
+- Logs & buffers: ~500MB
+- Optional LLM: 3–4GB RAM, on-demand only
+- Disk used for:
+  * Baselines
+  * Logs
+  * Threat intel
+  * LLM model storage
+
+====================================================================
+14. USER FEEDBACK LOOP
+====================================================================
+
+Actions can be marked:
+- Correct
+- False positive
+- Too aggressive
+- Missed threat
+
+Feedback updates:
+- Baseline
+- Thresholds
+- Whitelists
+
+====================================================================
+15. FAILURE MODES & RELIABILITY
+====================================================================
+
+- systemd watchdog
+- Degraded modes
+- Self-tests
+- Emergency stop & rollback scripts
+
+====================================================================
+16. V1 SCOPE BOUNDARIES
+====================================================================
+
+Explicitly out of scope:
+- Always-on LLMs
+- Auto-patching
+- Central SOC dashboards
+- Multi-host coordination
+- Compliance reporting
+
+====================================================================
+17. FINAL V1 PRIORITY ORDER
+====================================================================
+
+1. Deterministic core + baseline learning
+2. Autonomous containment & rollback
+3. File integrity monitoring
+4. Process lineage analysis
+5. Outbound traffic baselining
+6. Containment mode
+7. Explainability
+8. Optional integrations
+9. Optional LLM augmentation
+
+====================================================================
+END OF MASTER DOCUMENT

@@ -1,0 +1,245 @@
+# LoneWarrior Default Configuration
+# This file contains all default settings. User overrides should be placed in:
+# /etc/lonewarrior/config.yaml (Linux)
+
+# General Settings
+general:
+  data_dir: /var/lib/lonewarrior
+  log_dir: /var/log/lonewarrior
+  log_level: INFO
+  pid_file: /var/run/lonewarrior.pid
+
+# Baseline Learning Phases
+baseline:
+  # Phase 0: Instant Safety (0-10 minutes) - Extended for better initial learning
+  phase0_duration: 600  # seconds (10 minutes)
+  
+  # Phase 1: Fast Baseline (30-45 minutes) - Extended for more robust baseline
+  phase1_min_duration: 1800   # 30 minutes
+  phase1_max_duration: 2700  # 45 minutes
+  phase1_min_events: 200     # Minimum events to complete phase 1 (increased)
+  
+  # Phase 2: Expanded Baseline (2-3 hours) - Extended for comprehensive learning
+  phase2_min_duration: 7200   # 2 hours
+  phase2_max_duration: 10800   # 3 hours
+  phase2_variability_threshold: 0.3  # Trigger if CV > 30%
+  
+  # Phase 3: Continuous Learning
+  freeze_on_attack: true
+  freeze_cooldown: 1800  # 30 minutes after incident
+  update_confirmation_count: 3  # Require 3 observations before baseline update
+
+# Collection Intervals (seconds)
+collection:
+  process_interval: 10
+  network_interval: 15
+  auth_log_interval: 30
+  file_integrity_interval: 60
+  service_interval: 60
+  container_interval: 30
+
+# File Integrity Monitoring
+file_integrity:
+  enabled: true
+  watch_paths:
+    - /var/www
+    - /usr/share/nginx
+    - /etc
+    - /root/.ssh
+    - /home/*/.ssh
+    - /etc/systemd/system
+    - /etc/cron.d
+    - /etc/cron.daily
+    - /etc/cron.hourly
+    - /etc/cron.weekly
+    - /var/spool/cron
+  exclude_patterns:
+    - "*.log"
+    - "*.cache"
+    - "*.tmp"
+  webshell_detection: true
+
+# Network Monitoring
+network:
+  track_destinations: true
+  max_baseline_destinations: 1000
+  enable_dns_resolution: false  # Performance consideration
+  
+# Confidence Scoring Thresholds
+confidence:
+  observe: 0      # Log only
+  contain: 25     # Temporary blocks
+  aggressive: 50  # Multiple containment actions
+  lockdown: 75    # Full containment mode
+  
+  # Signal weights
+  weight_invariant: 50
+  weight_deviation: 20
+  weight_fim: 30
+  weight_lineage: 25
+  weight_killchain: 40
+  weight_integration: 15
+
+# Phase-aware Action Authorization
+# Maps baseline phase to maximum allowed confidence level for actions
+phase_action_limits:
+  0: 50   # Phase 0: Only invariants (high confidence)
+  1: 50   # Phase 1: Temporary containment
+  2: 75   # Phase 2: Aggressive containment
+  3: 100  # Phase 3: Full capability
+
+# Autonomous Actions
+actions:
+  enabled: true
+  
+  # IP Blocking
+  ip_block:
+    enabled: true
+    default_ttl: 900        # 15 minutes (Phase 1)
+    phase2_ttl: 7200        # 2 hours (Phase 2+) - Extended
+    max_concurrent: 1000
+    auto_block_threshold: 50  # Auto-block IPs with reputation score >= 50
+  
+  # Process Management
+  process_kill:
+    enabled: true
+    escalation_delay: 5  # Seconds between SIGTERM and SIGKILL
+    kill_children: true
+  
+  # User Account Management
+  user_disable:
+    enabled: true
+    default_ttl: 3600  # 1 hour
+  
+  # Container Isolation
+  container_isolate:
+    enabled: true
+    pause_not_stop: true  # Pause containers instead of stopping
+  
+  # Rate Limiting
+  rate_limit:
+    enabled: true
+    default_limit: 10  # connections per minute per IP
+    default_burst: 20  # burst allowance
+    auto_enable_on_attack: true  # Automatically enable rate limiting when attack detected
+    
+# Containment Mode
+containment:
+  auto_enable: true
+  trigger_threshold: 60  # Confidence score (lowered from 75 for faster response)
+  default_duration: 3600  # 1 hour
+  max_duration: 86400     # 24 hours
+  allow_whitelist_outbound: true
+  whitelist_ips:       # IPs that are always allowed outbound
+    - "8.8.8.8"
+    - "8.8.4.4"
+    - "1.1.1.1"
+    - "127.0.0.1"
+    - "::1"
+  whitelist_domains: []
+  pause_ssh_logins: true
+
+# Health Checks
+health:
+  enabled: true
+  check_interval: 30  # seconds
+  critical_services:
+    - sshd
+    - systemd
+  network_check_host: 8.8.8.8  # Google DNS for connectivity check
+  auto_rollback: true
+
+# Threat Intelligence
+threat_intel:
+  use_builtin_blacklist: true
+  reputation_tracking: true
+  reputation_decay_days: 7
+  failed_auth_penalty: 10
+  scan_pattern_penalty: 25
+  auto_block_on_reputation: 75  # Auto-block IPs with reputation >= 75
+  track_suspicious_connections: true
+  connection_suspicion_threshold: 20  # Number of connections to same unusual port
+
+  # External feeds (optional)
+  external_feeds:
+    enabled: true
+    abuseipdb:
+      enabled: true
+      api_key: ""  # Set via: lw config set-api-key abuseipdb YOUR_KEY
+      confidence_boost: 15  # Boost detection confidence for AbuseIPDB hits
+      check_interval: 3600  # 1 hour
+      max_age_in_days: 90  # Consider reports within last 90 days
+    project_honeypot:
+      enabled: true
+      confidence_boost: 20  # Boost detection confidence for honeypot hits
+      check_interval: 3600  # 1 hour
+    
+# Integration with External Tools
+integrations:
+  wazuh:
+    enabled: false
+    alerts_path: /var/ossec/logs/alerts/alerts.json
+    confidence_boost: 15
+  
+  modsecurity:
+    enabled: false
+    audit_log: /var/log/apache2/modsec_audit.log
+    confidence_boost: 20
+  
+  suricata:
+    enabled: false
+    eve_json: /var/log/suricata/eve.json
+    confidence_boost: 20
+
+# LLM Integration (Optional)
+llm:
+  enabled: false
+  mode: none  # none, local, cloud
+  
+  # Local LLM (Ollama via Docker)
+  local:
+    docker_image: ollama/ollama:latest
+    model: llama3.2:3b
+    memory_limit: 4096  # MB
+    on_demand: true     # Start only when needed
+  
+  # Cloud LLM
+  cloud:
+    provider: openai  # openai, anthropic, google
+    api_key: ""
+    model: gpt-4o-mini
+    max_tokens: 1000
+    anonymize_data: true
+
+# Web Dashboard
+web_dashboard:
+  enabled: false
+  host: 127.0.0.1  # Localhost only for security
+  port: 5000
+  debug: false
+  auth_required: false  # Set to true for production
+  username: admin
+  password: ""  # Set this if auth_required = true
+
+# Resource Limits
+resources:
+  max_memory_mb: 512      # Core engine limit
+  max_cpu_percent: 10     # Average CPU usage target
+  max_disk_usage_gb: 5    # Database and logs
+  log_rotation_days: 30
+  snapshot_retention_days: 7
+
+# Whitelists
+whitelists:
+  processes: []
+  users: []
+  ips:
+    - "127.0.0.1"
+    - "::1"
+    - "localhost"
+  domains: []
+  
+# Emergency Settings
+emergency:
+  stop_file: /var/lib/lonewarrior/EMERGENCY_STOP
+  rollback_script: /usr/local/bin/lonewarrior-emergency-rollback.sh

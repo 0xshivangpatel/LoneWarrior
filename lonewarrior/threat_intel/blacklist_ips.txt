@@ -1,0 +1,18 @@
+# 🚨 KNOWN MALICIOUS IPS - Phase 0 Blacklist
+# This file contains known malicious IP addresses that are blocked immediately
+# Sources: Public threat feeds, honeypot data, known attack infrastructure
+# Updated: 2025-12-18
+
+# Tor exit nodes (sample)
+# 185.220.101.1
+# 185.220.101.2
+
+# Known C2 servers (sample - replace with real threat intel)
+# 192.0.2.1
+# 198.51.100.1
+
+# Cryptocurrency miners
+# 203.0.113.1
+
+# Add your custom blacklisted IPs below:
+
