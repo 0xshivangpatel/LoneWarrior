@@ -15,19 +15,15 @@ with open("README.md", "r", encoding="utf-8") as fh:
 with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
-# Add requests if not in requirements
-if "requests" not in [r.split("==")[0].split(">=")[0] for r in requirements]:
-    requirements.append("requests>=2.25.0")
-
 setup(
     name="lonewarrior",
     version="1.0.0",
-    author="LoneWarrior Contributors",
+    author="Shivang Patel",
     author_email="",
     description="Autonomous security agent that learns, detects, and acts independently",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/lonewarrior",
+    url="https://github.com/0xshivangpatel/LoneWarrior",
     packages=find_packages(exclude=["tests", "tests.*"]),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -44,6 +40,12 @@ setup(
     ],
     python_requires=">=3.9",
     install_requires=requirements,
+    extras_require={
+        "threat-intel": ["requests>=2.31.0"],
+        "docker": ["docker>=6.1.0"],
+        "llm": ["openai>=1.0.0", "anthropic>=0.18.0"],
+        "all": ["requests>=2.31.0", "docker>=6.1.0", "openai>=1.0.0", "anthropic>=0.18.0"],
+    },
     entry_points={
         "console_scripts": [
             "lonewarrior=lonewarrior.__main__:main",

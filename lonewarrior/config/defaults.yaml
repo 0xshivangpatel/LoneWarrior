@@ -239,6 +239,47 @@ whitelists:
     - "localhost"
   domains: []
   
+# Web Log Monitoring (nginx/apache access log analysis)
+weblog:
+  enabled: true
+  log_path: ""               # Auto-detect if empty (nginx, apache)
+  collection_interval: 5     # seconds
+
+# Server Hardening Audit
+hardening:
+  enabled: true
+  initial_delay: 30          # seconds after start before first audit
+  audit_interval: 86400      # 24 hours between audits
+  allowed_open_ports: []     # Additional ports beyond 22, 80, 443
+  tls_expiry_warning_days: 30
+
+# Alerting / Notifications
+alerting:
+  enabled: false
+  min_confidence: 40         # Don't alert below this confidence score
+  rate_limit:
+    max_per_hour: 10         # Max alerts per hour per channel
+    cooldown_minutes: 15     # Don't re-alert same target within this window
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    smtp_user: ""
+    smtp_password: ""
+    use_ssl: false           # true for port 465 (SSL), false for port 587 (STARTTLS)
+    from_address: ""
+    to_addresses: []         # List of recipient emails
+  webhook:
+    enabled: false
+    webhook_url: ""          # Slack, Discord, Teams, PagerDuty, or custom
+    headers: {}              # Optional headers for auth tokens
+    hmac_secret: ""          # Optional HMAC-SHA256 signing secret
+  digest:
+    enabled: true
+    schedule: daily          # daily or weekly
+    hour: 9                  # UTC hour to send digest
+    minute: 0
+
 # Emergency Settings
 emergency:
   stop_file: /var/lib/lonewarrior/EMERGENCY_STOP

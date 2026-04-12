@@ -76,11 +76,13 @@ class SecurityEngine:
         self.collectors = []
         self.analyzers = []
         self.responders = []
-        
+        self.auxiliary = []  # Auditors, notifiers, and other auxiliary components
+
         # Initialize components
         self._init_collectors()
         self._init_analyzers()
         self._init_responders()
+        self._init_auxiliary()
         
         # Maintenance thread
         self.maintenance_thread = None
@@ -93,9 +95,9 @@ class SecurityEngine:
         from lonewarrior.collectors.network_collector import NetworkCollector
         from lonewarrior.collectors.auth_collector import AuthCollector
         from lonewarrior.collectors.file_collector import FileCollector
-        
+
         logger.info("Initializing collectors...")
-        
+
         # Process collector
         self.collectors.append(ProcessCollector(
             self.config,
@@ -103,7 +105,7 @@ class SecurityEngine:
             self.event_bus,
             self.state_manager
         ))
-        
+
         # Network collector
         self.collectors.append(NetworkCollector(
             self.config,
@@ -111,7 +113,7 @@ class SecurityEngine:
             self.event_bus,
             self.state_manager
         ))
-        
+
         # Auth collector
         self.collectors.append(AuthCollector(
             self.config,
@@ -119,7 +121,7 @@ class SecurityEngine:
             self.event_bus,
             self.state_manager
         ))
-        
+
         # File integrity collector
         if self.config.get('file_integrity', {}).get('enabled', False):
             self.collectors.append(FileCollector(
@@ -128,7 +130,17 @@ class SecurityEngine:
                 self.event_bus,
                 self.state_manager
             ))
-        
+
+        # Web log collector (nginx/apache access log monitoring)
+        if self.config.get('weblog', {}).get('enabled', True):
+            from lonewarrior.collectors.weblog_collector import WebLogCollector
+            self.collectors.append(WebLogCollector(
+                self.config,
+                self.db,
+                self.event_bus,
+                self.state_manager
+            ))
+
         logger.info(f"Initialized {len(self.collectors)} collectors")
     
     def _init_analyzers(self):
@@ -222,6 +234,17 @@ class SecurityEngine:
             external_threat_intel.start()
             self.analyzers.append(external_threat_intel)
 
+        # Web log analyzer (OWASP attack pattern detection)
+        if self.config.get('weblog', {}).get('enabled', True):
+            from lonewarrior.analyzers.weblog_analyzer import WebLogAnalyzer
+            weblog_analyzer = WebLogAnalyzer(
+                self.config,
+                self.db,
+                self.event_bus,
+                self.state_manager
+            )
+            self.analyzers.append(weblog_analyzer)
+
         logger.info(f"Initialized {len(self.analyzers)} analyzers")
     
     def _init_responders(self):
@@ -309,6 +332,32 @@ class SecurityEngine:
             self.responders.append(blacklist_loader)
         
         logger.info(f"Initialized {len(self.responders)} responders")
+
+    def _init_auxiliary(self):
+        """Initialize auxiliary components (auditors, notifiers)"""
+        logger.info("Initializing auxiliary components...")
+
+        # Hardening auditor
+        if self.config.get('hardening', {}).get('enabled', True):
+            from lonewarrior.auditors.hardening_auditor import HardeningAuditor
+            hardening_auditor = HardeningAuditor(
+                self.config,
+                self.db,
+                self.event_bus
+            )
+            self.auxiliary.append(hardening_auditor)
+
+        # Alert manager (email + webhook notifications)
+        if self.config.get('alerting', {}).get('enabled', False):
+            from lonewarrior.notifiers.alert_manager import AlertManager
+            alert_manager = AlertManager(
+                self.config,
+                self.db,
+                self.event_bus
+            )
+            self.auxiliary.append(alert_manager)
+
+        logger.info(f"Initialized {len(self.auxiliary)} auxiliary components")
     
     def start(self):
         """Start the security engine"""
@@ -339,7 +388,12 @@ class SecurityEngine:
         for responder in self.responders:
             responder.start()
             logger.info(f"Started {responder.__class__.__name__}")
-        
+
+        # Start auxiliary components (auditors, notifiers)
+        for aux in self.auxiliary:
+            aux.start()
+            logger.info(f"Started {aux.__class__.__name__}")
+
         # Start maintenance thread
         self.maintenance_thread = threading.Thread(target=self._maintenance_loop, daemon=False)
         self.maintenance_thread.start()
@@ -373,12 +427,17 @@ class SecurityEngine:
         logger.info("=" * 60)
         
         self.running = False
-        
-        # Stop responders first
+
+        # Stop auxiliary components first (notifiers, auditors)
+        for aux in self.auxiliary:
+            aux.stop()
+            logger.info(f"Stopped {aux.__class__.__name__}")
+
+        # Stop responders
         for responder in self.responders:
             responder.stop()
             logger.info(f"Stopped {responder.__class__.__name__}")
-        
+
         # Stop analyzers
         for analyzer in self.analyzers:
             analyzer.stop()
@@ -459,5 +518,6 @@ class SecurityEngine:
             'collectors': len(self.collectors),
             'analyzers': len(self.analyzers),
             'responders': len(self.responders),
+            'auxiliary': len(self.auxiliary),
             'event_queue_size': self.event_bus.get_queue_size(),
         }

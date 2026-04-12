@@ -1,0 +1,14 @@
+# Optional dependencies — install only what you need
+#
+# Threat intel HTTP feeds:
+#   pip install requests
+requests>=2.31.0
+
+# Container monitoring (Docker):
+#   pip install docker
+docker>=6.1.0
+
+# LLM integration:
+#   pip install openai anthropic
+openai>=1.0.0
+anthropic>=0.18.0

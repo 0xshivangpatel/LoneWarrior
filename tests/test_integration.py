@@ -10,6 +10,7 @@ Tests end-to-end workflows including:
 """
 
 import os
+import sys
 import subprocess
 import pytest
 import tempfile
@@ -178,8 +179,9 @@ class TestStatusCommand:
 
 
 class TestDatabasePermissions:
-    """Test database security permissions"""
+    """Test database security permissions (Linux only — Windows ignores POSIX modes)"""
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions not supported on Windows")
     def test_database_created_with_secure_permissions(self, tmp_path):
         """Test database file has 0600 permissions"""
         import stat
@@ -191,6 +193,7 @@ class TestDatabasePermissions:
         file_mode = stat.S_IMODE(os.stat(db_path).st_mode)
         assert file_mode == 0o600, f"Expected 0600, got {oct(file_mode)}"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file permissions not supported on Windows")
     def test_database_directory_secure_permissions(self, tmp_path):
         """Test database directory has 0700 permissions"""
         import stat

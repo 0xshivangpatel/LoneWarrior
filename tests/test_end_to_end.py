@@ -28,6 +28,7 @@ class TestEndToEndAttackSimulation:
         data_dir.mkdir(exist_ok=True)
         return data_dir
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Requires Linux auth subsystem and CLI event injection")
     def test_ssh_brute_creates_detection_and_action(self, temp_data_dir):
         """Test: SSH brute force creates detection and IP block action"""
         print("\n[TEST] Starting LoneWarrior...")

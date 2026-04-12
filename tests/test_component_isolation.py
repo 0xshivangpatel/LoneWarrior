@@ -39,6 +39,14 @@ class TestComponentIsolation:
                 'phase0_duration': 60,
                 'freeze_on_attack': True,
             },
+            'collection': {
+                'auth_log_interval': 30,
+                'process_interval': 10,
+                'network_interval': 15,
+                'file_integrity_interval': 60,
+                'service_interval': 60,
+                'container_interval': 30,
+            },
             'actions': {
                 'enabled': True,
                 'ip_block': {
@@ -77,7 +85,6 @@ class TestComponentIsolation:
                 'reason': 'Invalid user',
             },
             source='test',
-            timestamp=datetime.now(timezone.utc)
         )
 
         collector.stop()
@@ -100,55 +107,72 @@ class TestComponentIsolation:
                     'default_ttl': 10,
                 },
             },
+            'health': {
+                'enabled': True,
+                'check_interval': 30,
+                'critical_services': [],
+                'network_check_host': '8.8.8.8',
+                'auto_rollback': True,
+            },
         }
 
-        db = Database(str(temp_data_dir / 'test.db')
+        db = Database(str(temp_data_dir / 'test.db'))
         event_bus = EventBus()
+        event_bus.start()
+        state_manager = StateManager(db, config)
 
-        with patch('lonewarrior.responders.action_executor.get_privilege_manager') as mock_priv:
+        with patch('lonewarrior.responders.action_executor.get_privilege_manager') as mock_get_priv, \
+             patch('subprocess.run') as mock_subprocess:
             mock_priv = MagicMock()
             mock_priv.can_perform.return_value = True
             mock_priv.can_block.return_value = True
             mock_priv.can_kill.return_value = True
+            mock_get_priv.return_value = mock_priv
+            mock_subprocess.return_value = MagicMock(returncode=0, stdout='', stderr='')
 
             executor = ActionExecutor(config, db, event_bus, state_manager)
             executor.can_block_ips = True
             executor.can_kill_processes = True
             executor.start()
 
-        # Simulate IP block action
-        detection = Detection(
-            detection_type=DetectionType.THREAT_INTEL_HIT.value,
-            description='Suspicious IP from simulation',
-            confidence_score=60.0,
-            data={'ip': '192.168.1.100', 'username': 'testsimulator'},
-        )
-        detection_id = db.insert_detection(detection)
+            # Simulate IP block action
+            detection = Detection(
+                detection_type=DetectionType.THREAT_INTEL_HIT.value,
+                description='Suspicious IP from simulation',
+                confidence_score=60.0,
+                data={'ip': '192.168.1.100', 'username': 'testsimulator'},
+            )
+            detection_id = db.insert_detection(detection)
 
-        # Trigger action
-        event_bus.publish(
-            'trigger_action',
-            {
-                'detection_id': detection_id,
-                'action_level': 'contain',
-            },
-            source='test'
-        )
+            # Trigger action
+            event_bus.publish(
+                'trigger_action',
+                {
+                    'detection_id': detection_id,
+                    'action_level': 'contain',
+                },
+                source='test'
+            )
 
-        # Verify IP block action
-        actions = db.get_actions(limit=50)
-        ip_blocks = [a for a in actions if a.action_type == ActionType.IP_BLOCK.value]
+            import time
+            time.sleep(2)
 
-        assert len(ip_blocks) > 0, "Expected IP block action"
+            # Verify IP block action
+            actions = db.get_actions(limit=50)
+            ip_blocks = [a for a in actions if a.action_type == ActionType.IP_BLOCK.value]
 
-        executor.stop()
+            assert len(ip_blocks) > 0, "Expected IP block action"
+
+            executor.stop()
+        event_bus.stop()
 
     def test_state_manager_phase_transitions(self, temp_data_dir):
         """Test state manager transitions"""
         from lonewarrior.core.state_manager import StateManager
         from lonewarrior.storage.database import Database
+        from lonewarrior.storage.models import BaselinePhase
 
-        db = Database(str(temp_data_dir / 'test.db')
+        db = Database(str(temp_data_dir / 'test.db'))
         config = {
             'phases': {
                 'phase0_duration': 10,
@@ -162,17 +186,17 @@ class TestComponentIsolation:
 
         # Test transitions
         assert state.get_current_phase().value == 0, "Should start in Phase 0"
-        state.set_phase(state.PHASE_1_FAST)
+        state.set_phase(BaselinePhase.PHASE_1_FAST)
 
         assert state.get_current_phase().value == 1, "Should be in Phase 1"
 
         # Transition to Phase 2
-        state.set_phase(state.PHASE_2_EXPANDED)
+        state.set_phase(BaselinePhase.PHASE_2_EXPANDED)
 
         assert state.get_current_phase().value == 2, "Should be in Phase 2"
 
         # Back to Phase 1
-        state.set_phase(state.PHASE_1_FAST)
+        state.set_phase(BaselinePhase.PHASE_1_FAST)
         assert state.get_current_phase().value == 1, "Should be back in Phase 1"
 
     def test_threat_intel_analyzer(self, temp_data_dir):
@@ -192,7 +216,7 @@ class TestComponentIsolation:
                 },
         }
 
-        db = Database(str(temp_data_dir / 'test.db')
+        db = Database(str(temp_data_dir / 'test.db'))
         event_bus = EventBus()
 
         analyzer = ThreatIntelAnalyzer(config, db, event_bus, StateManager)
