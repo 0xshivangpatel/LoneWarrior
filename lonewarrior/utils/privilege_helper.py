@@ -19,6 +19,7 @@ import json
 import logging
 import subprocess
 import shutil
+import threading
 from typing import Optional, Dict, Any, Tuple
 from pathlib import Path
 from enum import Enum
@@ -513,11 +514,14 @@ class PrivilegeManager:
 
 # Singleton instance
 _privilege_manager: Optional[PrivilegeManager] = None
+_privilege_manager_lock = threading.Lock()
 
 
 def get_privilege_manager(config: Optional[Dict[str, Any]] = None) -> PrivilegeManager:
     """Get or create the privilege manager singleton"""
     global _privilege_manager
     if _privilege_manager is None:
-        _privilege_manager = PrivilegeManager(config)
+        with _privilege_manager_lock:
+            if _privilege_manager is None:
+                _privilege_manager = PrivilegeManager(config)
     return _privilege_manager

@@ -30,18 +30,23 @@ class WebDashboard:
     - Configuration viewer
     """
     
+    MAX_SSE_CLIENTS = 10
+
     def __init__(self, config: Dict[str, Any], database, event_bus, state_manager):
         self.config = config
         self.db = database
         self.event_bus = event_bus
         self.state = state_manager
-        
+
         self.enabled = config.get('web_dashboard', {}).get('enabled', False)
         self.port = config.get('web_dashboard', {}).get('port', 5000)
         self.bind_address = config.get('web_dashboard', {}).get('bind_address', '127.0.0.1')
-        
+        self.auth_required = config.get('web_dashboard', {}).get('auth_required', False)
+        self._auth_token = config.get('web_dashboard', {}).get('password', '')
+
         self.app = None
         self._thread = None
+        self._sse_client_count = 0
         
     def start(self):
         """Start web dashboard"""
@@ -64,11 +69,29 @@ class WebDashboard:
             pass
         logger.info("Web dashboard stopped")
     
+    def _check_auth(self):
+        """Check authentication if required. Returns error response or None."""
+        if not self.auth_required or not self._auth_token:
+            return None
+        token = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+        if not token:
+            token = request.args.get('token', '')
+        if token != self._auth_token:
+            return Response('Unauthorized', status=401,
+                            headers={'WWW-Authenticate': 'Bearer'})
+        return None
+
     def _create_app(self):
         """Create Flask application"""
         self.app = Flask(__name__)
         self.app.config['JSON_SORT_KEYS'] = False
-        
+
+        @self.app.before_request
+        def before_request():
+            err = self._check_auth()
+            if err is not None:
+                return err
+
         # Routes
         @self.app.route('/')
         def index():
@@ -104,13 +127,23 @@ class WebDashboard:
         @self.app.route('/api/events/stream')
         def event_stream():
             """Server-sent events for real-time updates"""
+            if self._sse_client_count >= self.MAX_SSE_CLIENTS:
+                return Response('Too many SSE clients', status=429)
+
+            self._sse_client_count += 1
+
             def generate():
-                # Simple polling-based SSE
+                # Simple polling-based SSE with timeout
                 import time
-                while True:
-                    data = json.dumps(self._get_status())
-                    yield f"data: {data}\n\n"
-                    time.sleep(5)
+                max_duration = 300  # 5 minute max per connection
+                start = time.monotonic()
+                try:
+                    while time.monotonic() - start < max_duration:
+                        data = json.dumps(self._get_status())
+                        yield f"data: {data}\n\n"
+                        time.sleep(5)
+                finally:
+                    self._sse_client_count -= 1
             return Response(generate(), mimetype='text/event-stream')
     
     def _start_server(self):

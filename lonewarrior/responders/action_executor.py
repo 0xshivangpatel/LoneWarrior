@@ -336,95 +336,6 @@ class ActionExecutor:
         if not success:
             raise RuntimeError(f"Failed to unblock IP {validated_ip}: {msg}")
 
-    def _expire_ip_blocks(self):
-        """Remove expired IP blocks"""
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-
-        # Get all pending IP block actions
-        actions = self.db.get_actions(
-            action_type=ActionType.IP_BLOCK.value,
-            status=ActionStatus.SUCCESS.value
-        )
-
-        for action in actions:
-            try:
-                expires_at = datetime.fromisoformat(
-                    action.parameters.get('expires_at', '')
-                )
-                if now >= expires_at:
-                    # Expired - unblock
-                    ip_address = action.target
-                    self._iptables_unblock_input_ip(ip_address)
-                    self.db.update_action(
-                        action.id,
-                        ActionStatus.EXPIRED.value,
-                        result=f"Unblocked {ip_address} (TTL expired)"
-                    )
-                    logger.info(f"🔄 IP block expired: {ip_address}")
-            except Exception as e:
-                logger.error(f"Error expiring IP block {action.id}: {e}")
-
-    def _expire_containment_mode(self):
-        """Check if containment mode should be disabled"""
-        from lonewarrior.storage.models import ActionStatus
-        
-        # Get all pending containment enable actions
-        actions = self.db.get_actions(
-            action_type=ActionType.CONTAINMENT_MODE_ENABLE.value,
-            status=ActionStatus.SUCCESS.value
-        )
-        
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
-        
-        for action in actions:
-            try:
-                expires_at = datetime.fromisoformat(
-                    action.parameters.get('expires_at', '')
-                )
-                if now >= expires_at:
-                    # Containment expired - disable it
-                    self.event_bus.publish(
-                        'disable_containment_mode',
-                        {},
-                        EventPriority.HIGH,
-                        'ActionExecutor'
-                    )
-                    logger.info(f"Containment mode expired (was active for {action.parameters.get('duration', 0)}s)")
-            except Exception as e:
-                logger.error(f"Error checking containment expiry: {e}")
-
-    def _enforce_blacklist_blocks(self):
-        """Ensure blacklist IPs remain blocked"""
-        from lonewarrior.storage.models import ActionStatus, Action
-        
-        # Get threat intel blacklist
-        threats = self.db.get_all_threat_intel()
-        
-        for threat in threats:
-            if threat.is_blacklisted:
-                ip = threat.ip_address
-                # Check if this IP is already blocked
-                existing_actions = self.db.get_actions(
-                    action_type=Action.IP_BLOCK.value,
-                    limit=100
-                )
-                
-                already_blocked = any(
-                    a.target == ip and a.status == ActionStatus.SUCCESS.value
-                    for a in existing_actions
-                )
-                
-                if not already_blocked:
-                    # Skip localhost IPs
-                    if self._is_localhost_ip(ip):
-                        continue
-                    
-                    # Block blacklisted IP with long TTL
-                    self.execute_ip_block(ip, None)
-                    logger.info(f"Re-enforced blacklist block for {ip}")
-
     def _is_localhost_ip(self, ip_address: str) -> bool:
         """
         Check if IP is localhost and should never be blocked
@@ -621,7 +532,7 @@ class ActionExecutor:
 
     def _iptables_apply_containment_rules(self):
         """
-        Apply containment rules (iptables).
+        Apply containment rules via PrivilegeManager.
 
         V1 behaviors:
         - Outbound default-deny (OUTPUT) except whitelisted IPs/domains (optional)
@@ -631,65 +542,86 @@ class ActionExecutor:
         """
         chain = "LW_CONTAIN"
 
-        # Ensure chain exists (iptables -N fails if exists)
-        subprocess.run(["iptables", "-N", chain], capture_output=True, text=True, timeout=10)
+        # Ensure chain exists
+        self.priv_mgr.execute(PrivilegedOperation.IPTABLES_CREATE_CHAIN, {'chain': chain})
+
         # Ensure hooks exist (insert if missing)
         self._iptables_ensure_jump("OUTPUT", chain, position=1)
         self._iptables_ensure_jump("INPUT", chain, position=1)
 
         # Flush chain to known state
-        subprocess.run(["iptables", "-F", chain], capture_output=True, text=True, timeout=10, check=True)
+        self.priv_mgr.execute(PrivilegedOperation.IPTABLES_FLUSH_CHAIN, {'chain': chain})
 
         # Always allow loopback + established/related
-        subprocess.run(["iptables", "-A", chain, "-i", "lo", "-j", "ACCEPT"], capture_output=True, text=True, timeout=10)
-        subprocess.run(["iptables", "-A", chain, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
-                       capture_output=True, text=True, timeout=10)
+        self.priv_mgr.execute(PrivilegedOperation.IPTABLES_ADD_RULE, {
+            'chain': chain,
+            'rule_args': ['-i', 'lo', '-j', 'ACCEPT']
+        })
+        self.priv_mgr.execute(PrivilegedOperation.IPTABLES_ADD_RULE, {
+            'chain': chain,
+            'rule_args': ['-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT']
+        })
 
         # Pause NEW SSH logins (inbound) if configured
         if self.config["containment"].get("pause_ssh_logins", True):
-            subprocess.run(["iptables", "-A", chain, "-p", "tcp", "--dport", "22",
-                            "-m", "conntrack", "--ctstate", "NEW", "-j", "DROP"],
-                           capture_output=True, text=True, timeout=10)
+            self.priv_mgr.execute(PrivilegedOperation.IPTABLES_ADD_RULE, {
+                'chain': chain,
+                'rule_args': ['-p', 'tcp', '--dport', '22', '-m', 'conntrack', '--ctstate', 'NEW', '-j', 'DROP']
+            })
 
         # Optional inbound rate limit (best-effort; depends on kernel modules)
         rate_cfg = self.config.get("actions", {}).get("rate_limit", {}) or {}
         if rate_cfg.get("enabled", False):
             limit = int(rate_cfg.get("default_limit", 10))
-            # Limit NEW inbound connections per source IP (approx. per minute)
-            # If hashlimit module isn't available, iptables will fail; snapshot rollback will recover.
-            subprocess.run([
-                "iptables", "-A", chain,
-                "-m", "conntrack", "--ctstate", "NEW",
-                "-m", "hashlimit",
-                "--hashlimit-name", "lw_inbound",
-                "--hashlimit-mode", "srcip",
-                "--hashlimit", f"{limit}/minute",
-                "--hashlimit-burst", str(max(5, limit)),
-                "-j", "ACCEPT"
-            ], capture_output=True, text=True, timeout=10, check=True)
+            self.priv_mgr.execute(PrivilegedOperation.IPTABLES_ADD_RULE, {
+                'chain': chain,
+                'rule_args': [
+                    '-m', 'conntrack', '--ctstate', 'NEW',
+                    '-m', 'hashlimit',
+                    '--hashlimit-name', 'lw_inbound',
+                    '--hashlimit-mode', 'srcip',
+                    '--hashlimit', f"{limit}/minute",
+                    '--hashlimit-burst', str(max(5, limit)),
+                    '-j', 'ACCEPT'
+                ]
+            })
 
         # Outbound whitelist (optional)
         allow_outbound = self.config["containment"].get("allow_whitelist_outbound", True)
         if allow_outbound:
             for ip in self.config["containment"].get("whitelist_ips", []) or []:
-                subprocess.run(["iptables", "-A", chain, "-d", str(ip), "-j", "ACCEPT"],
-                               capture_output=True, text=True, timeout=10)
+                try:
+                    validated_ip = validate_ip_address_or_raise(str(ip))
+                    self.priv_mgr.execute(PrivilegedOperation.IPTABLES_ADD_RULE, {
+                        'chain': chain,
+                        'rule_args': ['-d', validated_ip, '-j', 'ACCEPT']
+                    })
+                except ValueError:
+                    logger.warning(f"Skipping invalid whitelist IP: {ip}")
 
             # Domains (best-effort resolve)
             for domain in self.config["containment"].get("whitelist_domains", []) or []:
                 try:
                     import socket
                     resolved = socket.gethostbyname(domain)
-                    subprocess.run(["iptables", "-A", chain, "-d", resolved, "-j", "ACCEPT"],
-                                   capture_output=True, text=True, timeout=10)
+                    validated_ip = validate_ip_address_or_raise(resolved)
+                    self.priv_mgr.execute(PrivilegedOperation.IPTABLES_ADD_RULE, {
+                        'chain': chain,
+                        'rule_args': ['-d', validated_ip, '-j', 'ACCEPT']
+                    })
                 except Exception:
                     continue
 
-        # Default deny (we apply to OUTPUT by placing jump early; chain ends in DROP)
-        subprocess.run(["iptables", "-A", chain, "-j", "DROP"], capture_output=True, text=True, timeout=10, check=True)
+        # Default deny (chain ends in DROP)
+        self.priv_mgr.execute(PrivilegedOperation.IPTABLES_ADD_RULE, {
+            'chain': chain,
+            'rule_args': ['-j', 'DROP']
+        })
 
     def _iptables_ensure_jump(self, parent_chain: str, child_chain: str, position: int = 1):
         """Ensure parent_chain jumps to child_chain (inserted at a specific position)."""
+        # Check if jump already exists - this still uses subprocess since it's a
+        # check-then-act on built-in chains (INPUT/OUTPUT), not custom chains
         check = subprocess.run(["iptables", "-C", parent_chain, "-j", child_chain],
                                capture_output=True, text=True, timeout=10)
         if check.returncode != 0:
