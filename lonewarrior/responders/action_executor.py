@@ -585,7 +585,7 @@ class ActionExecutor:
 
     def _expire_containment_mode(self):
         """Disable containment enforcement when containment_until has elapsed."""
-        if self.state.is_containment_active():
+        if not self.state.is_containment_active():
             return
 
         snapshot_id_str = self.db.get_state("containment_snapshot_id", "")

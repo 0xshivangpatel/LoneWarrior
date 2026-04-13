@@ -357,18 +357,19 @@ class ContainmentMode:
     
     def _rollback_rules(self):
         """Remove all containment rules"""
-        # Remove jump rules first
-        for rule in reversed(self.active_rules):
+        # Always resume SSH logins first — this is the most critical rollback
+        self._resume_ssh_logins()
+
+        # Remove jump rules, chains, and tracked rules
+        for rule in reversed(list(self.active_rules)):
             try:
                 if rule.startswith('jump:'):
                     _, chain, target = rule.split(':')
                     self._run_iptables(['-D', chain, '-j', target])
-                elif rule.startswith('rule:'):
-                    # Handle specific rule removal - for now just log it
-                    logger.debug(f"Would remove rule: {rule}")
-                    # Remove from active_rules but don't try to remove complex rules
-                    self.active_rules.remove(rule)
-                    continue
+                elif rule == 'rule:INPUT:ssh_block':
+                    # Explicitly remove SSH block (belt-and-suspenders with _resume_ssh_logins above)
+                    self._run_iptables(['-D', 'INPUT', '-p', 'tcp', '--dport', '22',
+                                       '-m', 'state', '--state', 'NEW', '-j', 'DROP'])
                 elif rule.startswith('chain:'):
                     chain = rule.split(':')[1]
                     # Flush and delete chain
@@ -376,12 +377,8 @@ class ContainmentMode:
                     self._run_iptables(['-X', chain])
             except Exception as e:
                 logger.error(f"Failed to remove rule {rule}: {e}")
-        
-        # Only clear rules that were actually applied
-        for rule in list(self.active_rules):
-            if rule.startswith('rule:'):
-                self.active_rules.remove(rule)
-        
+
+        self.active_rules.clear()
         logger.info("Containment rules removed")
     
     def _run_iptables(self, args: List[str]) -> bool:

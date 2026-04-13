@@ -137,7 +137,8 @@ containment:
     - "127.0.0.1"
     - "::1"
   whitelist_domains: []
-  pause_ssh_logins: true
+  pause_ssh_logins: false       # DANGEROUS: blocks new SSH — disabled by default
+  admin_whitelist_ips: []       # IPs that are NEVER blocked (add your management IP here)
 
 # Health Checks
 health:
@@ -214,12 +215,11 @@ llm:
 # Web Dashboard
 web_dashboard:
   enabled: false
-  host: 127.0.0.1  # Localhost only for security
+  bind_address: 127.0.0.1      # Localhost only — put behind nginx for public access
   port: 5000
   debug: false
-  auth_required: false  # Set to true for production
-  username: admin
-  password: ""  # Set this if auth_required = true
+  auth_required: true           # Token-based auth for dashboard access
+  secret_key: ""                # Auto-generated on first start if empty
 
 # Resource Limits
 resources:

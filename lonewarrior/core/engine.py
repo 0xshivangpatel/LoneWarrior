@@ -357,6 +357,17 @@ class SecurityEngine:
             )
             self.auxiliary.append(alert_manager)
 
+        # Web Dashboard
+        if self.config.get('web_dashboard', {}).get('enabled', False):
+            from lonewarrior.web.dashboard import WebDashboard
+            web_dashboard = WebDashboard(
+                self.config,
+                database=self.db,
+                event_bus=self.event_bus,
+                state_manager=self.state_manager
+            )
+            self.auxiliary.append(web_dashboard)
+
         logger.info(f"Initialized {len(self.auxiliary)} auxiliary components")
     
     def start(self):
