@@ -4,6 +4,7 @@ State Manager - Tracks system state and baseline phases
 
 import json
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from lonewarrior.storage.models import BaselinePhase
@@ -28,7 +29,8 @@ class StateManager:
         """
         self.db = database
         self.config = config
-        
+        self._lock = threading.Lock()
+
         # Initialize state if not exists
         self._initialize_state()
     
@@ -168,11 +170,12 @@ class StateManager:
         Record that a new baseline item was added.
         Called by baseline_learner when new items are discovered.
         """
-        self.db.set_state('last_baseline_change', datetime.now(timezone.utc).isoformat())
-        
-        # Update item count
-        current_count = int(self.db.get_state('baseline_item_count', '0'))
-        self.db.set_state('baseline_item_count', str(current_count + 1))
+        with self._lock:
+            self.db.set_state('last_baseline_change', datetime.now(timezone.utc).isoformat())
+
+            # Update item count
+            current_count = int(self.db.get_state('baseline_item_count', '0'))
+            self.db.set_state('baseline_item_count', str(current_count + 1))
     
     def get_baseline_stability_info(self) -> Dict[str, Any]:
         """
@@ -276,21 +279,22 @@ class StateManager:
     def update_attack_confidence(self, score: float):
         """
         Update current attack confidence score
-        
+
         Args:
             score: New confidence score
         """
-        current_score = float(self.db.get_state('attack_confidence_score', '0.0'))
-        
-        # Use max of current and new score (decay over time handled elsewhere)
-        if score > current_score:
-            self.db.set_state('attack_confidence_score', str(score))
-            
-            # Freeze baseline if score exceeds contain threshold
-            if self.config['baseline']['freeze_on_attack']:
-                contain_threshold = self.config['confidence']['contain']
-                if score >= contain_threshold and not self.is_baseline_frozen():
-                    self.freeze_baseline(f"Attack confidence score: {score}")
+        with self._lock:
+            current_score = float(self.db.get_state('attack_confidence_score', '0.0'))
+
+            # Use max of current and new score (decay over time handled elsewhere)
+            if score > current_score:
+                self.db.set_state('attack_confidence_score', str(score))
+
+                # Freeze baseline if score exceeds contain threshold
+                if self.config['baseline']['freeze_on_attack']:
+                    contain_threshold = self.config['confidence']['contain']
+                    if score >= contain_threshold and not self.is_baseline_frozen():
+                        self.freeze_baseline(f"Attack confidence score: {score}")
     
     def get_attack_confidence(self) -> float:
         """Get current attack confidence score"""
@@ -299,13 +303,14 @@ class StateManager:
     def decay_attack_confidence(self, decay_amount: float = 1.0):
         """
         Gradually decay attack confidence over time
-        
+
         Args:
             decay_amount: Amount to decay (called periodically)
         """
-        current = self.get_attack_confidence()
-        new_score = max(0.0, current - decay_amount)
-        self.db.set_state('attack_confidence_score', str(new_score))
+        with self._lock:
+            current = self.get_attack_confidence()
+            new_score = max(0.0, current - decay_amount)
+            self.db.set_state('attack_confidence_score', str(new_score))
     
     # ==================== Containment Mode ====================
     

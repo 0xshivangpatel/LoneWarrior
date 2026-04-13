@@ -32,6 +32,10 @@ class NetworkCollector(BaseCollector):
 
         # Track failed connections
         self.failed_connections: Dict[str, List[datetime]] = defaultdict(list)  # remote_addr -> timestamps
+
+        # Counter for periodic full cleanup of stale dict keys
+        self._collection_count = 0
+        self._cleanup_every = 50  # Full cleanup every 50 collections
     
     def _get_collection_interval(self) -> int:
         return self.config['collection']['network_interval']
@@ -72,7 +76,7 @@ class NetworkCollector(BaseCollector):
                         # Track connection history for scanning detection
                         self._track_connection(remote_addr, remote_port)
 
-            except:
+            except Exception:
                 continue
 
         # Cleanup old connections
@@ -81,6 +85,11 @@ class NetworkCollector(BaseCollector):
 
         # Periodically check for scanning patterns
         self._detect_scanning_patterns()
+
+        # Periodic full cleanup of stale dictionary keys
+        self._collection_count += 1
+        if self._collection_count % self._cleanup_every == 0:
+            self._cleanup_stale_keys()
     
     def _handle_new_connection(self, conn):
         """Handle new network connection"""
@@ -225,3 +234,36 @@ class NetworkCollector(BaseCollector):
                     },
                     EventPriority.HIGH
                 )
+
+    def _cleanup_stale_keys(self):
+        """Remove stale keys from tracking dicts to prevent unbounded memory growth."""
+        now = datetime.now()
+        cutoff = now - timedelta(minutes=5)
+
+        for ip in list(self.connection_history):
+            self.connection_history[ip] = [
+                (ts, port) for ts, port in self.connection_history[ip] if ts > cutoff
+            ]
+            if not self.connection_history[ip]:
+                del self.connection_history[ip]
+
+        for port in list(self.port_access_history):
+            self.port_access_history[port] = [
+                ts for ts in self.port_access_history[port] if ts > cutoff
+            ]
+            if not self.port_access_history[port]:
+                del self.port_access_history[port]
+
+        for key in list(self.connection_attempts):
+            self.connection_attempts[key] = [
+                ts for ts in self.connection_attempts[key] if ts > cutoff
+            ]
+            if not self.connection_attempts[key]:
+                del self.connection_attempts[key]
+
+        for ip in list(self.failed_connections):
+            self.failed_connections[ip] = [
+                ts for ts in self.failed_connections[ip] if ts > cutoff
+            ]
+            if not self.failed_connections[ip]:
+                del self.failed_connections[ip]

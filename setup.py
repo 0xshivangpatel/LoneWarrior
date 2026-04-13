@@ -44,6 +44,7 @@ setup(
         "threat-intel": ["requests>=2.31.0"],
         "docker": ["docker>=6.1.0"],
         "llm": ["openai>=1.0.0", "anthropic>=0.18.0"],
+        "dev": ["pytest>=7.0.0", "pytest-cov>=4.0.0"],
         "all": ["requests>=2.31.0", "docker>=6.1.0", "openai>=1.0.0", "anthropic>=0.18.0"],
     },
     entry_points={

@@ -36,11 +36,12 @@ def setup_logging(config: Dict[str, Any]):
     console_handler.setFormatter(console_format)
     root_logger.addHandler(console_handler)
     
-    # File handler with rotation
+    # File handler with rotation (backupCount derived from log_rotation_days config)
+    rotation_days = config.get('resources', {}).get('log_rotation_days', 30)
     file_handler = RotatingFileHandler(
         log_dir / 'lonewarrior.log',
         maxBytes=10 * 1024 * 1024,  # 10MB
-        backupCount=5
+        backupCount=max(5, rotation_days)
     )
     file_handler.setLevel(log_level)
     file_handler.setFormatter(console_format)
